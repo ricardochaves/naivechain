@@ -4,17 +4,19 @@ var express = require("express");
 var bodyParser = require('body-parser');
 var WebSocket = require("ws");
 
+//Iniciando as variáveis de porta do http, p2p e peers
 var http_port = process.env.HTTP_PORT || 3001;
 var p2p_port = process.env.P2P_PORT || 6001;
 var initialPeers = process.env.PEERS ? process.env.PEERS.split(',') : [];
 
+//Criando a classe Block
 class Block {
     constructor(index, previousHash, timestamp, data, hash) {
-        this.index = index;
-        this.previousHash = previousHash.toString();
+        this.index = index; //Pk
+        this.previousHash = previousHash.toString(); //Hash anterior
         this.timestamp = timestamp;
         this.data = data;
-        this.hash = hash.toString();
+        this.hash = hash.toString(); //Hash do bloco
     }
 }
 
@@ -25,22 +27,37 @@ var MessageType = {
     RESPONSE_BLOCKCHAIN: 2
 };
 
+//Pega o bloco genesis, todos blockchain deve ter um bloco inicial
+// esse bloco inicial chama genesis.
 var getGenesisBlock = () => {
     return new Block(0, "0", 1465154705, "my genesis block!!", "816534932c2b7154836da6afc367695e6337db8a921823784c14378abed4f7d7");
 };
 
+//Aqui é uma simulação do banco de dados, será apenas um array in memory
 var blockchain = [getGenesisBlock()];
 
+//Variável que vai iniciar o Servidor Http.
 var initHttpServer = () => {
     var app = express();
     app.use(bodyParser.json());
 
+    // Essa roda pega o banco de dados e retorna, nada de mais aqui.
     app.get('/blocks', (req, res) => res.send(JSON.stringify(blockchain)));
+    
+    //Aqui você vai incluir um novo bloco no seu blockchain
     app.post('/mineBlock', (req, res) => {
+        //Você envia os dados do bloco, o sevidor gera o bloco para você.
         var newBlock = generateNextBlock(req.body.data);
+        
+        //Adiciona novo bloco
         addBlock(newBlock);
+
+        //Depois de adicionar ele avia a todos os nodes que foi incluido um novo 
+        // bloco enviando o novo bloco junto
         broadcast(responseLatestMsg());
         console.log('block added: ' + JSON.stringify(newBlock));
+
+        //Pronto bloco adicionado
         res.send();
     });
     app.get('/peers', (req, res) => {
@@ -97,10 +114,17 @@ var initErrorHandler = (ws) => {
 
 
 var generateNextBlock = (blockData) => {
+    //O processo de gerar um bloco consiste em:
+
+    //pega o último bloco
     var previousBlock = getLatestBlock();
+    //soma mais um na PK
     var nextIndex = previousBlock.index + 1;
+    //gera o timestamp
     var nextTimestamp = new Date().getTime() / 1000;
+    //calcula o hash do bloco a ser adicionado
     var nextHash = calculateHash(nextIndex, previousBlock.hash, nextTimestamp, blockData);
+    //retorna o blocl
     return new Block(nextIndex, previousBlock.hash, nextTimestamp, blockData, nextHash);
 };
 
@@ -110,27 +134,39 @@ var calculateHashForBlock = (block) => {
 };
 
 var calculateHash = (index, previousHash, timestamp, data) => {
+    //Calculo simples de SHA256.
     return CryptoJS.SHA256(index + previousHash + timestamp + data).toString();
 };
 
 var addBlock = (newBlock) => {
+    //para adicionar ele precisa validar o novo bloco.
     if (isValidNewBlock(newBlock, getLatestBlock())) {
+        //Se tudo estiver válido então ele adiciona o bloco no array
         blockchain.push(newBlock);
     }
 };
 
 var isValidNewBlock = (newBlock, previousBlock) => {
-    if (previousBlock.index + 1 !== newBlock.index) {
+    //previousBlock = a o último bloco do blockchain
+
+    //Algumas coisas precisam ser validadas aqui:
+
+    if (previousBlock.index + 1 !== newBlock.index) {       
+        //Primeiro se o index está correto.
         console.log('invalid index');
         return false;
     } else if (previousBlock.hash !== newBlock.previousHash) {
+        //O hash do bloco anterior deve ser igual ao ao último bloco do blockchain
         console.log('invalid previoushash');
         return false;
     } else if (calculateHashForBlock(newBlock) !== newBlock.hash) {
+        //Ele recalcula o novo hash do bloco novo para saber se está correto
         console.log(typeof (newBlock.hash) + ' ' + typeof calculateHashForBlock(newBlock));
         console.log('invalid hash: ' + calculateHashForBlock(newBlock) + ' ' + newBlock.hash);
         return false;
     }
+
+    // Se tudo der certo ele retorna verdadeiro 
     return true;
 };
 
@@ -191,6 +227,7 @@ var isValidChain = (blockchainToValidate) => {
     return true;
 };
 
+// pegar o último bloco é apenas pegar o último do array
 var getLatestBlock = () => blockchain[blockchain.length - 1];
 var queryChainLengthMsg = () => ({'type': MessageType.QUERY_LATEST});
 var queryAllMsg = () => ({'type': MessageType.QUERY_ALL});
