@@ -1,3 +1,8 @@
+# Naivechain - Comentado em português.
+Fiz um fork do projeto para explicar em português como seria um blockchain básico funcionandno
+
+O projeto original é esse [Naivechain](https://github.com/lhartikk/naivechain).
+
 # Naivechain - a blockchain implementation in 200 lines of code
 
 ### Motivation
