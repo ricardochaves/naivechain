@@ -61,9 +61,14 @@ var initHttpServer = () => {
         res.send();
     });
     app.get('/peers', (req, res) => {
+        //Os peers são os caras que controlam os nodes, por isso o blockchain é 
+        // descentralizado
+        //Eles estão armazenados em um array chamado sockets.
+        //O get apenas retorna os dados deles. 
         res.send(sockets.map(s => s._socket.remoteAddress + ':' + s._socket.remotePort));
     });
     app.post('/addPeer', (req, res) => {
+        //Você pode adicionar um novo peer
         connectToPeers([req.body.peer]);
         res.send();
     });
@@ -79,13 +84,29 @@ var initP2PServer = () => {
 };
 
 var initConnection = (ws) => {
+    //Iniciar um peer é incluir ele no socket
     sockets.push(ws);
+    //Colocar o socket ouvindo as mensagens
     initMessageHandler(ws);
+    //Aqui ele fica ouvindo erros, ele apenas remove o ws do socket
+    // por isso não vou nem entrar no metodo.
     initErrorHandler(ws);
+
+    //Depois de conectado ele vai pedir o último bloco do blockchain
     write(ws, queryChainLengthMsg());
 };
 
 var initMessageHandler = (ws) => {
+    //Aqui é onde a gente consegue ver como os peers se comunicam.
+    //Para quem já fez algum chat com WS fica fácil de entender.
+    //Para quem nunca fez: 
+    //Cada mensagem tem um typo, o tipo defini o que o peer mandou e 
+    // baseado nisso o que o servidor deve fazer.
+    // QUERY_LATEST: Pede para o peer enviar o seu último bloco.
+    // QUERY_ALL: Pede para o peer enviar todo o seu chain
+    // RESPONSE_BLOCKCHAIN: Diz para o peer que ele está recebendo uma resposta 
+    //  de uma solicitação que ele fez.
+    // O metodo 'write' envia a resposta solicitada.
     ws.on('message', (data) => {
         var message = JSON.parse(data);
         console.log('Received message' + JSON.stringify(message));
@@ -172,40 +193,75 @@ var isValidNewBlock = (newBlock, previousBlock) => {
 
 var connectToPeers = (newPeers) => {
     newPeers.forEach((peer) => {
+        //Para cada novo peer ele criar um WS
         var ws = new WebSocket(peer);
+        //Aqui quando a conecção do socket abrir ele vai fazer o init
         ws.on('open', () => initConnection(ws));
+        //Caso de error ele só loga.
         ws.on('error', () => {
             console.log('connection failed')
         });
     });
 };
 
+//Aqui é a lógica para tratar as respostas recebidas dos outros peer do blockchain
 var handleBlockchainResponse = (message) => {
+    //Pega os blocos recebidos
     var receivedBlocks = JSON.parse(message.data).sort((b1, b2) => (b1.index - b2.index));
+    
+    //Pega o último bloco dos blocos recebidos
     var latestBlockReceived = receivedBlocks[receivedBlocks.length - 1];
+
+    //Pega o último bloco dele mesmo
     var latestBlockHeld = getLatestBlock();
+
+    //Verifica qual blockchain é maior, o meu ou o recebido
     if (latestBlockReceived.index > latestBlockHeld.index) {
+
+        //Caso eu receba um blockchain maior que o meu eu tenho que me atualizar
         console.log('blockchain possibly behind. We got: ' + latestBlockHeld.index + ' Peer got: ' + latestBlockReceived.index);
         if (latestBlockHeld.hash === latestBlockReceived.previousHash) {
+            //Se o hash do meu último blocl for igual ao hash do bloco anterior 
+            // do último bloco recebido quer dizer que tudo para trás está igual
+            // e eu apenas tenho que incluir o novo bloco
             console.log("We can append the received block to our chain");
+
+            //Adiciono o último bloco aqui.
             blockchain.push(latestBlockReceived);
+
+            //Toda vez que isso acontece o peer que foi atualizado envia o último
+            // bloco dele para todos os outros peers atravez de um broadcast
             broadcast(responseLatestMsg());
+
         } else if (receivedBlocks.length === 1) {
+
+            //Aqui acontece quando o peer é novo, ele pede o último bloco.
+            // e recebe um chain com o último hash diferente do meu último hash
+            // e o total de bocos recebidos é 1, o que quer dizer que eu pedi o último
+            // isso garante que eu sou o novo e tenho que pedor todos os blocos.
             console.log("We have to query the chain from our peer");
             broadcast(queryAllMsg());
         } else {
+
+            //Se cair aqui é proque o blockchain recebido é maior que o meu, então
+            // eu vou me atualizar com o que veio atravéz do replaceChain
             console.log("Received blockchain is longer than current blockchain");
             replaceChain(receivedBlocks);
         }
     } else {
+        //Se o index for igual ou maior ele não tem que fazer nada, já está atualizado
         console.log('received blockchain is not longer than received blockchain. Do nothing');
     }
 };
 
 var replaceChain = (newBlocks) => {
+    //Ele tem que validar o blockchain recebido antes de atualizar
+    // e isso é feito pela isValidChain e novamente testando o tamanho do bloco
+    // atual contra o recebido.
     if (isValidChain(newBlocks) && newBlocks.length > blockchain.length) {
         console.log('Received blockchain is valid. Replacing current blockchain with received blockchain');
         blockchain = newBlocks;
+        //Depois de atualizar ele envia um broadcast para todo mundo com o último bloco
         broadcast(responseLatestMsg());
     } else {
         console.log('Received blockchain invalid');
@@ -213,9 +269,13 @@ var replaceChain = (newBlocks) => {
 };
 
 var isValidChain = (blockchainToValidate) => {
+    //O teste de validade aqui é para saber se o genesis dos dois está correto
     if (JSON.stringify(blockchainToValidate[0]) !== JSON.stringify(getGenesisBlock())) {
         return false;
     }
+
+    //Depois ele pega cada bloco e fazer a validação de hash que vimos na inclusão de um 
+    // novo bloco
     var tempBlocks = [blockchainToValidate[0]];
     for (var i = 1; i < blockchainToValidate.length; i++) {
         if (isValidNewBlock(blockchainToValidate[i], tempBlocks[i - 1])) {
@@ -229,16 +289,25 @@ var isValidChain = (blockchainToValidate) => {
 
 // pegar o último bloco é apenas pegar o último do array
 var getLatestBlock = () => blockchain[blockchain.length - 1];
+
+//Monta uma solicitação para pegar o último bloco do blockchain
 var queryChainLengthMsg = () => ({'type': MessageType.QUERY_LATEST});
+
+//Monta uma solicitação para pegar todos os blocos do blockchain
 var queryAllMsg = () => ({'type': MessageType.QUERY_ALL});
+
+//Monta uma resposta do tipo RESPONSE_BLOCKCHAIN com todos os blocos
 var responseChainMsg = () =>({
     'type': MessageType.RESPONSE_BLOCKCHAIN, 'data': JSON.stringify(blockchain)
 });
+
+//Monta uma resposta do tipo RESPONSE_BLOCKCHAIN com o último bloco.
 var responseLatestMsg = () => ({
     'type': MessageType.RESPONSE_BLOCKCHAIN,
     'data': JSON.stringify([getLatestBlock()])
 });
 
+//Envia uma resposta pelo WS
 var write = (ws, message) => ws.send(JSON.stringify(message));
 var broadcast = (message) => sockets.forEach(socket => write(socket, message));
 
