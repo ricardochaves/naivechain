@@ -20,12 +20,12 @@ class Block {
     }
 }
 
-var sockets = [];
+var sockets = []; //para o websocket 
 var MessageType = {
     QUERY_LATEST: 0,
     QUERY_ALL: 1,
     RESPONSE_BLOCKCHAIN: 2
-};
+}; //tipando as mensagens
 
 //Pega o bloco genesis, todos blockchain deve ter um bloco inicial
 // esse bloco inicial chama genesis.
